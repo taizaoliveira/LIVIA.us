@@ -1,0 +1,963 @@
+<!--
+  LIVIA.us — Aplicativo de acesso a Unidades Basicas de Saude (UBS) de Itacoatiara/AM
+  Build funcional para testes de QA (UFAM - Sistemas de Informacao)
+  Stacks: HTML/CSS/JS puro + Leaflet/OpenStreetMap + Supabase (PostgreSQL + Realtime) como banco compartilhado
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover">
+<title>LIVIA.us</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0E7C66">
+<meta name="description" content="Encontre Unidades Basicas de Saude em Itacoatiara/AM, acompanhe campanhas e fale com profissionais.">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LIVIA.us">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+  :root{
+    --verde:#0E7C66;        /* saude / primario */
+    --verde-escuro:#0A5C4C;
+    --verde-claro:#E6F2EE;
+    --coral:#E8654A;        /* campanhas / alertas */
+    --coral-claro:#FCEAE5;
+    --bg:#FBF8F3;
+    --surface:#FFFFFF;
+    --ink:#162A26;
+    --muted:#5C6B66;
+    --linha:#E7E2D8;
+    --ok:#1B8A5A;
+    --erro:#C0392B;
+    --aviso:#B07A12;
+    --radius:16px;
+    --shadow:0 6px 24px rgba(16,40,34,.08);
+    --base-font:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:var(--base-font);
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.45;
+  }
+  /* contraste alto (acessibilidade) */
+  body.alto-contraste{
+    --bg:#0B0F0E; --surface:#15201D; --ink:#FFFFFF; --muted:#CFE3DD;
+    --verde:#3FD9B0; --verde-escuro:#2BBF98; --verde-claro:#0E2C25;
+    --coral:#FF8A6B; --coral-claro:#3A1C14; --linha:#2C3A36;
+    --shadow:0 6px 24px rgba(0,0,0,.5);
+  }
+
+  /* layout app */
+  #app-shell{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;background:var(--bg);position:relative}
+  .topbar{
+    position:sticky;top:0;z-index:600;display:flex;align-items:center;gap:10px;
+    padding:14px 16px;background:var(--verde);color:#fff;
+  }
+  .topbar .marca{display:flex;align-items:baseline;gap:2px;font-weight:800;letter-spacing:.3px;font-size:1.15rem}
+  .topbar .marca b{color:#fff}
+  .topbar .marca span{color:#BFF0E0;font-weight:700}
+  .topbar .sub{font-size:.72rem;color:#CFEFE6;margin-left:2px}
+  .topbar .grow{flex:1}
+  .icon-btn{
+    appearance:none;border:0;background:rgba(255,255,255,.15);color:#fff;
+    width:42px;height:42px;border-radius:12px;font-size:1.2rem;cursor:pointer;
+    display:flex;align-items:center;justify-content:center
+  }
+  .icon-btn:focus-visible,button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+    outline:3px solid #1668FF;outline-offset:2px;border-radius:8px
+  }
+
+  main{flex:1;padding:16px 16px 92px;overflow-y:auto}
+  .view{display:none}
+  .view.ativo{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){.view.ativo{animation:none}}
+
+  h1.titulo{font-size:1.4rem;margin:.2rem 0 .2rem;font-weight:800;letter-spacing:-.01em}
+  p.subt{color:var(--muted);margin:.1rem 0 1rem}
+  .eyebrow{font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--verde)}
+
+  /* cartoes */
+  .card{background:var(--surface);border:1px solid var(--linha);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .card + .card{margin-top:14px}
+  .card-pad{padding:16px}
+
+  /* botoes */
+  .btn{appearance:none;border:0;border-radius:12px;padding:14px 16px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .btn-primary{background:var(--verde);color:#fff}
+  .btn-primary:active{background:var(--verde-escuro)}
+  .btn-coral{background:var(--coral);color:#fff}
+  .btn-ghost{background:transparent;color:var(--verde);border:1.5px solid var(--verde)}
+  .btn-soft{background:var(--verde-claro);color:var(--verde-escuro)}
+  .btn-sm{padding:9px 12px;font-size:.85rem;width:auto;border-radius:10px}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .btn-link{background:none;border:0;color:var(--verde);font-weight:700;cursor:pointer;text-decoration:underline;font-size:.92rem;padding:6px}
+
+  /* formularios */
+  label.field{display:block;margin:12px 0}
+  label.field span{display:block;font-size:.85rem;font-weight:700;margin-bottom:6px;color:var(--ink)}
+  input,select,textarea{
+    width:100%;padding:13px 14px;border:1.5px solid var(--linha);border-radius:12px;
+    background:var(--surface);color:var(--ink);font-size:1rem;font-family:inherit
+  }
+  textarea{min-height:90px;resize:vertical}
+  .hint{font-size:.78rem;color:var(--muted);margin-top:4px}
+  .msg{padding:11px 13px;border-radius:11px;font-size:.88rem;margin:10px 0;font-weight:600}
+  .msg-erro{background:var(--coral-claro);color:var(--erro)}
+  .msg-ok{background:var(--verde-claro);color:var(--ok)}
+  .msg-aviso{background:#FBF1D9;color:var(--aviso)}
+
+  /* auth */
+  #screen-auth{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:28px 22px}
+  .brand-hero{text-align:center;margin-bottom:22px}
+  .brand-hero .logo{font-size:2.6rem;font-weight:800;letter-spacing:-.02em}
+  .brand-hero .logo span{color:var(--verde)}
+  .brand-hero .pulse{color:var(--coral)}
+  .brand-hero .tag{color:var(--muted);margin-top:4px;font-size:.95rem}
+  .seg{display:flex;background:var(--verde-claro);border-radius:12px;padding:4px;margin-bottom:16px;gap:4px}
+  .seg button{flex:1;border:0;background:transparent;padding:10px;border-radius:9px;font-weight:700;color:var(--verde-escuro);cursor:pointer;font-size:.9rem}
+  .seg button.on{background:var(--surface);box-shadow:var(--shadow);color:var(--ink)}
+  .auth-panel{display:none}
+  .auth-panel.on{display:block}
+  .credbox{font-size:.78rem;color:var(--muted);background:var(--verde-claro);border-radius:10px;padding:10px 12px;margin-top:14px;line-height:1.6}
+  .credbox b{color:var(--verde-escuro)}
+
+  /* bottom nav */
+  nav.tabbar{
+    position:fixed;left:0;right:0;bottom:0;z-index:700;max-width:480px;margin:0 auto;
+    background:var(--surface);border-top:1px solid var(--linha);display:flex;
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px rgba(16,40,34,.06)
+  }
+  nav.tabbar button{
+    flex:1;border:0;background:none;padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;
+    color:var(--muted);font-size:.7rem;font-weight:700;cursor:pointer;border-radius:12px
+  }
+  nav.tabbar button .ico{font-size:1.35rem;line-height:1}
+  nav.tabbar button.on{color:var(--verde)}
+  nav.tabbar button.on .ico{transform:translateY(-1px)}
+
+  /* lista UBS */
+  .ubs-item{display:flex;gap:12px;align-items:center;padding:14px 16px;cursor:pointer;border-bottom:1px solid var(--linha)}
+  .ubs-item:last-child{border-bottom:0}
+  .ubs-pin{width:44px;height:44px;border-radius:12px;background:var(--verde-claro);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0}
+  .ubs-item h3{margin:0;font-size:1rem}
+  .ubs-item .meta{font-size:.8rem;color:var(--muted);margin-top:2px}
+  .dist-badge{margin-left:auto;font-size:.78rem;font-weight:800;color:var(--verde);white-space:nowrap;align-self:center}
+
+  #mapa{height:240px;width:100%;border-radius:var(--radius);border:1px solid var(--linha);z-index:1}
+  .leaflet-container{font-family:inherit}
+
+  /* feed */
+  .post .post-cover{height:120px;display:flex;align-items:flex-end;padding:12px;color:#fff;font-weight:800;font-size:1.05rem;text-shadow:0 1px 4px rgba(0,0,0,.35)}
+  .post .tipo-tag{display:inline-block;font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;background:rgba(255,255,255,.9);color:var(--ink);padding:3px 8px;border-radius:99px;margin-bottom:6px}
+  .post-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted);margin-top:8px}
+  .post-meta b{color:var(--ink)}
+
+  /* chat */
+  .thread{display:flex;flex-direction:column;gap:8px;padding:6px 2px;min-height:220px}
+  .bubble{max-width:78%;padding:10px 13px;border-radius:14px;font-size:.92rem;line-height:1.35}
+  .bubble.me{align-self:flex-end;background:var(--verde);color:#fff;border-bottom-right-radius:4px}
+  .bubble.them{align-self:flex-start;background:var(--surface);border:1px solid var(--linha);border-bottom-left-radius:4px}
+  .bubble .who{display:block;font-size:.68rem;opacity:.8;margin-bottom:2px;font-weight:700}
+  .chat-input{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
+  .chat-input textarea{min-height:46px;max-height:120px}
+
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--verde-claro);color:var(--verde-escuro);padding:5px 11px;border-radius:99px;font-size:.78rem;font-weight:700}
+  .badge-count{background:var(--coral);color:#fff;border-radius:99px;font-size:.7rem;font-weight:800;padding:1px 7px;margin-left:6px}
+
+  .empty{text-align:center;color:var(--muted);padding:30px 16px}
+  .empty .em-ico{font-size:2rem}
+
+  .row{display:flex;gap:10px}
+  .row > *{flex:1}
+  .back-btn{background:none;border:0;color:var(--verde);font-weight:700;cursor:pointer;padding:6px 0;font-size:.95rem;display:inline-flex;align-items:center;gap:4px}
+
+  /* painel acessibilidade */
+  .a11y-overlay{position:fixed;inset:0;background:rgba(10,20,18,.45);z-index:1200;display:none;align-items:flex-end;justify-content:center}
+  .a11y-overlay.on{display:flex}
+  .a11y-panel{background:var(--surface);width:100%;max-width:480px;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:var(--shadow)}
+  .a11y-panel h2{margin:.2rem 0 .8rem;font-size:1.1rem}
+  .a11y-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--linha)}
+  .a11y-row:last-child{border-bottom:0}
+  .a11y-row .lbl b{display:block}
+  .a11y-row .lbl small{color:var(--muted)}
+  .stepper{display:flex;align-items:center;gap:8px}
+  .stepper button{width:38px;height:38px;border-radius:10px;border:1.5px solid var(--linha);background:var(--surface);font-size:1.2rem;cursor:pointer;color:var(--ink)}
+  .switch{width:52px;height:30px;border-radius:99px;background:var(--linha);position:relative;cursor:pointer;border:0;flex-shrink:0}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+  .switch.on{background:var(--verde)}
+  .switch.on::after{left:25px}
+
+  /* utilitarios visualmente escondido mas acessivel a leitor de tela */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .modal-actions{display:flex;gap:10px;margin-top:14px}
+  .pill-status{display:inline-block;font-size:.72rem;font-weight:800;padding:3px 9px;border-radius:99px}
+  .pill-pendente{background:#FBF1D9;color:var(--aviso)}
+  .pill-aprovado{background:var(--verde-claro);color:var(--ok)}
+</style>
+
+<!-- ================= TELA DE CONFIGURACAO (sem chaves Supabase) ================= -->
+<section id="screen-setup" style="display:none;max-width:480px;margin:0 auto;min-height:100%;flex-direction:column;justify-content:center;padding:28px 22px;gap:4px">
+  <div class="brand-hero">
+    <div class="logo">LIVIA<span class="pulse">.</span><span>us</span></div>
+    <div class="tag">Configuracao do servidor</div>
+  </div>
+  <div id="setup-extra"></div>
+  <div class="card card-pad">
+    <p style="margin-top:0"><b>Falta conectar ao Supabase.</b> Abra este arquivo (index.html) num editor de texto e cole, no topo do script, a URL e a chave do seu projeto:</p>
+    <pre style="background:var(--verde-claro);padding:12px;border-radius:10px;overflow:auto;font-size:.82rem">const SUPABASE_URL = 'https://laanwpeoidciyzjkbdtc.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhYW53cGVvaWRjaXl6amtiZHRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMzc0MjAsImV4cCI6MjA5NjcxMzQyMH0.uT40wpTyFq0Y7jwthTaqlPNtenK7tigic0osAQFdQOU';</pre>
+    <p style="font-size:.9rem;color:var(--muted)">Voce encontra os dois valores no painel do Supabase em <b>Project Settings &gt; API</b>. Antes, rode o arquivo <b>supabase_setup.sql</b> no <b>SQL Editor</b> para criar as tabelas e os dados de teste. O passo a passo completo esta no README.</p>
+  </div>
+</section>
+
+<!-- ================= TELA DE AUTENTICACAO ================= -->
+<section id="screen-auth" aria-label="Acesso ao LIVIA.us">
+  <div class="brand-hero">
+    <div class="logo">LIVIA<span class="pulse">.</span><span>us</span></div>
+    <div class="tag">Sua saude perto de voce, em Itacoatiara</div>
+  </div>
+
+  <div class="seg" role="tablist" aria-label="Tipo de acesso">
+    <button id="seg-entrar" class="on" role="tab" aria-selected="true">Entrar</button>
+    <button id="seg-cadastrar" role="tab" aria-selected="false">Cadastrar</button>
+    <button id="seg-prof" role="tab" aria-selected="false">Profissional</button>
+  </div>
+
+  <div id="auth-msg" aria-live="assertive"></div>
+
+  <!-- Entrar -->
+  <div id="panel-entrar" class="auth-panel on">
+    <label class="field"><span>E-mail</span>
+      <input id="login-email" type="email" autocomplete="username" placeholder="voce@exemplo.com"></label>
+    <label class="field"><span>Senha</span>
+      <input id="login-senha" type="password" autocomplete="current-password" placeholder="Sua senha"></label>
+    <button id="btn-login" class="btn btn-primary">Entrar</button>
+    <div style="text-align:center;margin-top:6px">
+      <button id="btn-recuperar" class="btn-link">Esqueci minha senha</button>
+    </div>
+    <button id="btn-visitante" class="btn btn-ghost" style="margin-top:8px">Entrar como visitante</button>
+    <div class="credbox">
+      <b>Contas de teste</b><br>
+      Cidadao: <b>cidadao@livia.us</b> / 123456<br>
+      Enfermeiro: COREN <b>123456-AM</b> / enf123<br>
+      Coordenador: <b>coordenador@livia.us</b> / admin123
+    </div>
+  </div>
+
+  <!-- Cadastrar cidadao -->
+  <div id="panel-cadastrar" class="auth-panel">
+    <label class="field"><span>Nome completo</span>
+      <input id="cad-nome" type="text" autocomplete="name" placeholder="Seu nome"></label>
+    <label class="field"><span>E-mail</span>
+      <input id="cad-email" type="email" autocomplete="email" placeholder="voce@exemplo.com"></label>
+    <label class="field"><span>Senha</span>
+      <input id="cad-senha" type="password" autocomplete="new-password" placeholder="Minimo 6 caracteres"></label>
+    <label class="field"><span>Confirmar senha</span>
+      <input id="cad-senha2" type="password" autocomplete="new-password" placeholder="Repita a senha"></label>
+    <button id="btn-cadastrar" class="btn btn-primary">Criar conta</button>
+  </div>
+
+  <!-- Profissional (enfermeiro) -->
+  <div id="panel-prof" class="auth-panel">
+    <div class="seg" style="margin-bottom:12px">
+      <button id="seg-prof-login" class="on">Entrar</button>
+      <button id="seg-prof-cad">Novo cadastro</button>
+    </div>
+
+    <div id="prof-login-box">
+      <label class="field"><span>Registro COREN</span>
+        <input id="prof-coren" type="text" placeholder="Ex.: 123456-AM"></label>
+      <label class="field"><span>Senha</span>
+        <input id="prof-senha" type="password" placeholder="Sua senha"></label>
+      <button id="btn-prof-login" class="btn btn-primary">Entrar como enfermeiro</button>
+    </div>
+
+    <div id="prof-cad-box" style="display:none">
+      <label class="field"><span>Nome completo</span>
+        <input id="profc-nome" type="text" placeholder="Seu nome"></label>
+      <label class="field"><span>E-mail</span>
+        <input id="profc-email" type="email" placeholder="voce@exemplo.com"></label>
+      <label class="field"><span>Registro COREN</span>
+        <input id="profc-coren" type="text" placeholder="Ex.: 654321-AM">
+        <div class="hint">Formato: 5 a 7 digitos, opcionalmente seguido de -UF.</div></label>
+      <label class="field"><span>UBS de atuacao</span>
+        <select id="profc-ubs"></select></label>
+      <label class="field"><span>Senha</span>
+        <input id="profc-senha" type="password" placeholder="Minimo 6 caracteres"></label>
+      <button id="btn-prof-cad" class="btn btn-primary">Cadastrar enfermeiro</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= APP PRINCIPAL ================= -->
+<div id="app-shell" style="display:none">
+  <header class="topbar">
+    <div class="marca"><b>LIVIA</b><span>.us</span></div>
+    <div class="sub" id="topbar-perfil"></div>
+    <div class="grow"></div>
+    <button class="icon-btn" id="btn-a11y" aria-label="Acessibilidade" title="Acessibilidade">&#9685;</button>
+  </header>
+
+  <div id="sr-status" class="sr-only" aria-live="polite"></div>
+
+  <main>
+    <!-- FEED -->
+    <section id="view-feed" class="view ativo" aria-label="Feed de saude">
+      <div class="eyebrow">Acontece nas UBS</div>
+      <h1 class="titulo">Campanhas e eventos</h1>
+      <p class="subt">Fique por dentro das acoes de saude do seu municipio.</p>
+      <div id="feed-lista"></div>
+    </section>
+
+    <!-- UBS / MAPA -->
+    <section id="view-ubs" class="view" aria-label="Unidades Basicas de Saude">
+      <div class="eyebrow">Onde me atendem</div>
+      <h1 class="titulo">Unidades proximas</h1>
+      <p class="subt">Toque numa unidade para ver servicos e horarios.</p>
+      <div id="mapa" role="img" aria-label="Mapa das UBS de Itacoatiara"></div>
+      <div class="row" style="margin:12px 0">
+        <button id="btn-localizar" class="btn btn-soft btn-sm" style="width:100%">&#128205; Usar minha localizacao</button>
+        <button id="btn-ordem-az" class="btn btn-soft btn-sm" style="width:100%">A-Z</button>
+      </div>
+      <div id="ubs-aviso"></div>
+      <div class="card" id="ubs-lista"></div>
+    </section>
+
+    <!-- DETALHE UBS -->
+    <section id="view-ubs-detalhe" class="view" aria-label="Detalhes da unidade">
+      <button class="back-btn" data-back="view-ubs">&#8592; Voltar para unidades</button>
+      <div id="ubs-detalhe-conteudo"></div>
+    </section>
+
+    <!-- CHAT -->
+    <section id="view-chat" class="view" aria-label="Chat com profissionais">
+      <div class="eyebrow">Fale com a saude</div>
+      <h1 class="titulo">Conversas</h1>
+      <p class="subt">Tire duvidas com profissionais das UBS.</p>
+      <div id="chat-lista"></div>
+    </section>
+
+    <!-- THREAD CHAT -->
+    <section id="view-chat-thread" class="view" aria-label="Conversa">
+      <button class="back-btn" data-back="view-chat">&#8592; Voltar para conversas</button>
+      <h1 class="titulo" id="thread-titulo" style="font-size:1.15rem"></h1>
+      <div class="card card-pad">
+        <div class="thread" id="thread-msgs"></div>
+        <div class="chat-input">
+          <textarea id="thread-input" placeholder="Escreva sua mensagem" aria-label="Mensagem"></textarea>
+          <button id="btn-enviar-msg" class="btn btn-primary" style="width:auto;padding:0 18px">Enviar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PERFIL -->
+    <section id="view-perfil" class="view" aria-label="Perfil">
+      <div class="eyebrow">Minha conta</div>
+      <h1 class="titulo" id="perfil-nome">Perfil</h1>
+      <p class="subt" id="perfil-tipo"></p>
+      <div id="perfil-acoes"></div>
+      <button id="btn-sair" class="btn btn-ghost" style="margin-top:18px">Sair da conta</button>
+    </section>
+
+    <!-- CRIAR POST (enfermeiro) -->
+    <section id="view-post-novo" class="view" aria-label="Nova publicacao">
+      <button class="back-btn" data-back="view-feed">&#8592; Voltar</button>
+      <h1 class="titulo">Nova publicacao</h1>
+      <p class="subt">Sera enviada para aprovacao do coordenador.</p>
+      <div id="post-msg" aria-live="assertive"></div>
+      <label class="field"><span>Tipo</span>
+        <select id="post-tipo">
+          <option value="Campanha">Campanha</option>
+          <option value="Evento">Evento</option>
+          <option value="Mutirao">Mutirao</option>
+          <option value="Comunicado">Comunicado</option>
+        </select></label>
+      <label class="field"><span>Titulo</span>
+        <input id="post-titulo" type="text" placeholder="Ex.: Campanha de vacinacao"></label>
+      <label class="field"><span>Data do evento</span>
+        <input id="post-data" type="date">
+        <div class="hint">Datas no passado sao recusadas.</div></label>
+      <label class="field"><span>Local</span>
+        <select id="post-local"></select></label>
+      <label class="field"><span>Publico-alvo</span>
+        <input id="post-publico" type="text" placeholder="Ex.: Criancas de 1 a 5 anos"></label>
+      <label class="field"><span>Descricao</span>
+        <textarea id="post-descricao" placeholder="Detalhe a acao de saude"></textarea></label>
+      <button id="btn-publicar" class="btn btn-primary">Enviar para aprovacao</button>
+    </section>
+
+    <!-- APROVACOES (coordenador) -->
+    <section id="view-aprovar" class="view" aria-label="Aprovacao de publicacoes">
+      <button class="back-btn" data-back="view-perfil">&#8592; Voltar</button>
+      <h1 class="titulo">Fila de aprovacao</h1>
+      <p class="subt">Publicacoes aguardando liberacao para o feed.</p>
+      <div id="aprovar-lista"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Navegacao principal">
+    <button data-tab="view-feed" class="on"><span class="ico">&#128240;</span>Feed</button>
+    <button data-tab="view-ubs"><span class="ico">&#128205;</span>UBS</button>
+    <button data-tab="view-chat" id="tab-chat"><span class="ico">&#128172;</span>Chat</button>
+    <button data-tab="view-perfil"><span class="ico">&#128100;</span>Perfil</button>
+  </nav>
+</div>
+
+<!-- painel acessibilidade -->
+<div class="a11y-overlay" id="a11y-overlay">
+  <div class="a11y-panel" role="dialog" aria-label="Opcoes de acessibilidade">
+    <h2>Acessibilidade</h2>
+    <div class="a11y-row">
+      <div class="lbl"><b>Tamanho do texto</b><small>Aumente para ler com conforto</small></div>
+      <div class="stepper">
+        <button id="font-menos" aria-label="Diminuir texto">A-</button>
+        <button id="font-mais" aria-label="Aumentar texto">A+</button>
+      </div>
+    </div>
+    <div class="a11y-row">
+      <div class="lbl"><b>Alto contraste</b><small>Cores escuras e maior contraste</small></div>
+      <button class="switch" id="sw-contraste" role="switch" aria-checked="false" aria-label="Alto contraste"></button>
+    </div>
+    <div class="a11y-row">
+      <div class="lbl"><b>Comandos de voz</b><small>Diga: feed, mapa, chat, perfil, voltar</small></div>
+      <button class="switch" id="sw-voz" role="switch" aria-checked="false" aria-label="Comandos de voz"></button>
+    </div>
+    <div id="voz-status" class="hint" style="min-height:18px"></div>
+    <div class="modal-actions">
+      <button id="a11y-fechar" class="btn btn-primary">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIG — cole os dados do SEU projeto Supabase aqui
+   (Project Settings > API: Project URL e a chave "anon public")
+========================================================= */
+const SUPABASE_URL = 'COLE_SUA_URL_AQUI';
+const SUPABASE_ANON_KEY = 'COLE_SUA_ANON_KEY_AQUI';
+
+const CONFIGURADO = !/COLE_SUA/.test(SUPABASE_URL) && !/COLE_SUA/.test(SUPABASE_ANON_KEY);
+let sb = null;
+
+/* estado em memoria */
+const App = { sessao:null, ubs:[], posts:[], msgs:[], mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
+
+const $  = (s,root=document)=> root.querySelector(s);
+const $$ = (s,root=document)=> [...root.querySelectorAll(s)];
+
+/* =========================================================
+   MAPEAMENTO linha do banco -> objeto do app
+========================================================= */
+const mapUbs  = r => ({id:r.id, nome:r.nome, bairro:r.bairro, lat:r.lat, lng:r.lng, endereco:r.endereco, horario:r.horario, servicos:r.servicos||[], areas:r.areas||[]});
+const mapPost = r => ({id:r.id, tipo:r.tipo, titulo:r.titulo, descricao:r.descricao, dataEvento:r.data_evento, local:r.local, publico:r.publico, autorId:r.autor_id, autorNome:r.autor_nome, status:r.status, createdAt:new Date(r.created_at).getTime()});
+const mapMsg  = r => ({id:r.id, ubsId:r.ubs_id, cidadaoId:r.cidadao_id, autorId:r.autor_id, autorNome:r.autor_nome, tipo:r.tipo, texto:r.texto, ts:new Date(r.ts).getTime()});
+const mapUser = r => r ? ({id:r.id, tipo:r.tipo, nome:r.nome, email:r.email, coren:r.coren, ubsId:r.ubs_id}) : null;
+
+/* =========================================================
+   CARREGAR DADOS
+========================================================= */
+async function carregarUBS(){ const {data,error}=await sb.from('ubs').select('*').order('nome'); if(error) throw error; App.ubs=(data||[]).map(mapUbs); }
+async function carregarPosts(){ const {data,error}=await sb.from('posts').select('*').order('created_at',{ascending:false}); if(error) throw error; App.posts=(data||[]).map(mapPost); }
+async function carregarMsgs(){ const {data,error}=await sb.from('mensagens').select('*').order('ts'); if(error) throw error; App.msgs=(data||[]).map(mapMsg); }
+
+/* =========================================================
+   AUTENTICACAO (via funcoes RPC seguras no banco)
+========================================================= */
+function emailValido(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+function corenValido(c){ return /^\d{5,7}(-?[A-Za-z]{2})?$/.test(c.trim()); }
+function authMsg(html, tipo='erro'){ $('#auth-msg').innerHTML = html ? `<div class="msg msg-${tipo}">${html}</div>` : ''; }
+
+async function fazerLogin(email, senha){
+  if(!email || !senha) return authMsg('Informe e-mail e senha.');
+  try{
+    const {data,error}=await sb.rpc('login_email',{p_email:email.trim(),p_senha:senha});
+    if(error) return authMsg('Nao foi possivel entrar agora. Tente novamente.');
+    if(!data || !data.ok) return authMsg('E-mail ou senha incorretos. Confira os dados e tente de novo.');
+    await entrar(mapUser(data.user));
+  }catch(e){ authMsg('Erro de conexao com o servidor.'); }
+}
+
+async function fazerLoginEnfermeiro(coren, senha){
+  if(!coren || !senha) return authMsg('Informe COREN e senha.');
+  try{
+    const {data,error}=await sb.rpc('login_coren',{p_coren:coren.trim(),p_senha:senha});
+    if(error) return authMsg('Nao foi possivel entrar agora. Tente novamente.');
+    if(!data || !data.ok) return authMsg('COREN ou senha incorretos.');
+    await entrar(mapUser(data.user));
+  }catch(e){ authMsg('Erro de conexao com o servidor.'); }
+}
+
+async function cadastrarCidadao(nome,email,senha,senha2){
+  if(!nome.trim()) return authMsg('Informe seu nome completo.');
+  if(!emailValido(email)) return authMsg('Informe um e-mail valido.');
+  if(senha.length<6) return authMsg('A senha precisa ter ao menos 6 caracteres.');
+  if(senha!==senha2) return authMsg('As senhas nao conferem.');
+  try{
+    const {data,error}=await sb.rpc('cadastrar_cidadao',{p_nome:nome,p_email:email,p_senha:senha});
+    if(error) return authMsg('Nao foi possivel cadastrar agora.');
+    if(!data || !data.ok) return authMsg(data?.erro || 'Nao foi possivel cadastrar.');
+    trocarSeg('entrar');
+    $('#login-email').value = email.trim();
+    ['cad-nome','cad-email','cad-senha','cad-senha2'].forEach(id=>$('#'+id).value='');
+    authMsg('Conta criada! Faca login para continuar.','ok');
+  }catch(e){ authMsg('Erro de conexao com o servidor.'); }
+}
+
+async function cadastrarEnfermeiro(nome,email,coren,ubsId,senha){
+  if(!nome.trim()) return authMsg('Informe seu nome completo.');
+  if(!emailValido(email)) return authMsg('Informe um e-mail valido.');
+  if(!corenValido(coren)) return authMsg('COREN invalido. Use 5 a 7 digitos, ex.: 654321-AM.');
+  if(senha.length<6) return authMsg('A senha precisa ter ao menos 6 caracteres.');
+  try{
+    const {data,error}=await sb.rpc('cadastrar_enfermeiro',{p_nome:nome,p_email:email,p_coren:coren,p_ubs:ubsId,p_senha:senha});
+    if(error) return authMsg('Nao foi possivel cadastrar agora.');
+    if(!data || !data.ok) return authMsg(data?.erro || 'Nao foi possivel cadastrar.');
+    $('#seg-prof-login').click();
+    $('#prof-coren').value = coren.trim();
+    authMsg('Cadastro profissional criado! Entre com seu COREN.','ok');
+  }catch(e){ authMsg('Erro de conexao com o servidor.'); }
+}
+
+async function recuperarSenha(email){
+  if(!emailValido(email)) return authMsg('Digite seu e-mail no campo acima e toque em "Esqueci minha senha".');
+  authMsg('Se este e-mail estiver cadastrado, enviamos um link de redefinicao para ele.','ok');
+}
+
+async function entrar(conta){
+  App.sessao = conta;
+  try{ localStorage.setItem('livia:sessao', JSON.stringify(conta)); }catch(_){}
+  iniciarApp();
+}
+async function entrarVisitante(){
+  App.sessao = {id:'visitante', tipo:'visitante', nome:'Visitante'};
+  try{ localStorage.setItem('livia:sessao', JSON.stringify(App.sessao)); }catch(_){}
+  iniciarApp();
+}
+async function sair(){
+  App.sessao = null;
+  try{ localStorage.removeItem('livia:sessao'); }catch(_){}
+  $('#app-shell').style.display='none';
+  $('#screen-auth').style.display='flex';
+  authMsg('');
+  ['login-email','login-senha'].forEach(id=>{ const el=$('#'+id); if(el) el.value=''; });
+}
+
+/* =========================================================
+   NAVEGACAO
+========================================================= */
+function navegar(viewId){
+  $$('.view').forEach(v=> v.classList.remove('ativo'));
+  const alvo = $('#'+viewId); if(alvo) alvo.classList.add('ativo');
+  const tabAlvo = {'view-feed':'view-feed','view-ubs':'view-ubs','view-ubs-detalhe':'view-ubs','view-chat':'view-chat','view-chat-thread':'view-chat','view-perfil':'view-perfil','view-post-novo':'view-feed','view-aprovar':'view-perfil'}[viewId];
+  $$('.tabbar button').forEach(b=> b.classList.toggle('on', b.dataset.tab===tabAlvo));
+  anunciar('Tela: '+ (alvo?.getAttribute('aria-label')||viewId));
+  if(viewId==='view-ubs'){ setTimeout(()=>{ if(App.mapa) App.mapa.invalidateSize(); }, 60); }
+  window.scrollTo(0,0); const main=$('main'); if(main) main.scrollTop=0;
+}
+function anunciar(txt){ const s=$('#sr-status'); if(s) s.textContent = txt; }
+
+/* =========================================================
+   INICIAR APP
+========================================================= */
+function iniciarApp(){
+  $('#screen-setup') && ($('#screen-setup').style.display='none');
+  $('#screen-auth').style.display='none';
+  $('#app-shell').style.display='flex';
+  const s = App.sessao;
+  const rotulo = {cidadao:'Cidadao',visitante:'Visitante',enfermeiro:'Enfermeiro',coordenador:'Coordenador'}[s.tipo]||'';
+  $('#topbar-perfil').textContent = rotulo;
+  renderFeed(); renderUBSLista(); renderChatLista(); renderPerfil(); prepararFormPost(); initMapa(); iniciarRealtime();
+  navegar('view-feed');
+}
+
+/* =========================================================
+   REALTIME (chat e feed ao vivo)
+========================================================= */
+function iniciarRealtime(){
+  if(App.rtPronto) return; App.rtPronto=true;
+  try{
+    App.canalRT = sb.channel('livia-rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'mensagens'}, p=>{
+        if(App.msgs.some(m=>m.id===p.new.id)) return;
+        App.msgs.push(mapMsg(p.new));
+        if($('#view-chat-thread').classList.contains('ativo')) desenharThread();
+        if($('#view-chat').classList.contains('ativo')) renderChatLista();
+      })
+      .on('postgres_changes',{event:'*',schema:'public',table:'posts'}, async ()=>{
+        await carregarPosts();
+        if($('#view-feed').classList.contains('ativo')) renderFeed();
+        if($('#view-aprovar').classList.contains('ativo')) renderAprovacoes();
+        if($('#view-perfil').classList.contains('ativo')) renderPerfil();
+      })
+      .subscribe();
+  }catch(e){ console.warn('Realtime indisponivel', e); }
+}
+
+/* =========================================================
+   FEED
+========================================================= */
+function corDoTipo(tipo){ return {Campanha:'linear-gradient(135deg,#0E7C66,#0A5C4C)',Evento:'linear-gradient(135deg,#2A7DE1,#1B57A8)',Mutirao:'linear-gradient(135deg,#E8654A,#C24327)',Comunicado:'linear-gradient(135deg,#B07A12,#8A5E08)'}[tipo]||'linear-gradient(135deg,#0E7C66,#0A5C4C)'; }
+function iconeTipo(tipo){ return {Campanha:'&#128137;',Evento:'&#128197;',Mutirao:'&#129657;',Comunicado:'&#128226;'}[tipo]||'&#128137;'; }
+
+function renderFeed(){
+  const lista = $('#feed-lista');
+  const aprovados = App.posts.filter(p=> p.status==='aprovado').sort((a,b)=> b.createdAt-a.createdAt);
+  if(!aprovados.length){ lista.innerHTML = `<div class="empty"><div class="em-ico">&#128240;</div><p>Ainda nao ha publicacoes por aqui.</p></div>`; return; }
+  lista.innerHTML = aprovados.map(p=>{
+    const ubs = App.ubs.find(u=> u.id===p.local);
+    return `<article class="card post" style="margin-top:14px">
+      <div class="post-cover" style="background:${corDoTipo(p.tipo)}">
+        <div><span class="tipo-tag">${iconeTipo(p.tipo)} ${p.tipo}</span><br>${escapeHTML(p.titulo)}</div>
+      </div>
+      <div class="card-pad">
+        <p style="margin:.1rem 0 .4rem">${escapeHTML(p.descricao)}</p>
+        <div class="post-meta">
+          <span>&#128197; <b>${dataBR(p.dataEvento)}</b></span>
+          <span>&#128205; <b>${ubs?escapeHTML(ubs.nome):'-'}</b></span>
+          <span>&#128101; ${escapeHTML(p.publico||'Todos')}</span>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+/* =========================================================
+   UBS — MAPA E LISTA
+========================================================= */
+let MapaPronto=false;
+function initMapa(){
+  if(MapaPronto) return;
+  if(typeof L==='undefined'){ $('#mapa').innerHTML='<div class="empty" style="padding:40px 10px"><div class="em-ico">&#128205;</div><p>Mapa indisponivel agora. Veja a lista de unidades abaixo.</p></div>'; return; }
+  App.mapa = L.map('mapa',{zoomControl:true}).setView([-3.143,-58.444], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(App.mapa);
+  const icon = L.divIcon({className:'', html:'<div style="background:#0E7C66;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);font-size:14px">&#9877;</span></div>', iconSize:[30,30], iconAnchor:[15,28]});
+  App.ubs.forEach(u=>{
+    const m = L.marker([u.lat,u.lng],{icon, title:u.nome}).addTo(App.mapa);
+    m.bindPopup(`<b>${escapeHTML(u.nome)}</b><br>${escapeHTML(u.endereco)}<br><a href="#" onclick="abrirUBS('${u.id}');return false;">Ver detalhes</a>`);
+    App.marcadores.push({id:u.id, m});
+  });
+  MapaPronto=true;
+}
+function haversine(a,b,c,d){ const R=6371,toR=x=>x*Math.PI/180; const dLat=toR(c-a),dLng=toR(d-b); const x=Math.sin(dLat/2)**2+Math.cos(toR(a))*Math.cos(toR(c))*Math.sin(dLng/2)**2; return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)); }
+
+function renderUBSLista(){
+  let lista=[...App.ubs];
+  if(App.ordemAtual==='proximidade' && App.userLatLng){
+    lista.forEach(u=> u._dist=haversine(App.userLatLng.lat,App.userLatLng.lng,u.lat,u.lng));
+    lista.sort((a,b)=> a._dist-b._dist);
+  }else{ lista.sort((a,b)=> a.nome.localeCompare(b.nome)); }
+  $('#ubs-lista').innerHTML = lista.map(u=>{
+    const dist = (App.ordemAtual==='proximidade' && u._dist!=null) ? `<span class="dist-badge">${u._dist.toFixed(1)} km</span>` : '';
+    return `<div class="ubs-item" role="button" tabindex="0" data-ubs="${u.id}">
+      <div class="ubs-pin">&#127973;</div>
+      <div><h3>${escapeHTML(u.nome)}</h3><div class="meta">${escapeHTML(u.bairro)} &middot; ${escapeHTML(u.horario)}</div></div>${dist}
+    </div>`;
+  }).join('');
+  $$('#ubs-lista .ubs-item').forEach(el=>{
+    el.addEventListener('click', ()=> abrirUBS(el.dataset.ubs));
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); abrirUBS(el.dataset.ubs);} });
+  });
+}
+
+function abrirUBS(id){
+  const u = App.ubs.find(x=> x.id===id); if(!u) return;
+  $('#ubs-detalhe-conteudo').innerHTML = `
+    <div class="post-cover" style="background:linear-gradient(135deg,#0E7C66,#0A5C4C);border-radius:16px;height:120px;margin:8px 0 14px"><div style="font-size:1.2rem">${escapeHTML(u.nome)}</div></div>
+    <div class="card card-pad">
+      <div class="chip">&#128336; ${escapeHTML(u.horario)}</div>
+      <p style="margin:.8rem 0 .2rem"><b>Endereco</b><br>${escapeHTML(u.endereco)}</p>
+      <p style="margin:.8rem 0 .2rem"><b>Servicos oferecidos</b></p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${u.servicos.map(s=>`<span class="chip">${escapeHTML(s)}</span>`).join('')}</div>
+      <p style="margin:.8rem 0 .2rem"><b>Areas de cobertura</b></p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${u.areas.map(s=>`<span class="chip" style="background:var(--coral-claro);color:#9A3A22">${escapeHTML(s)}</span>`).join('')}</div>
+      <button class="btn btn-primary" style="margin-top:16px" onclick="iniciarChatComUBS('${u.id}')">&#128172; Falar com a unidade</button>
+    </div>`;
+  navegar('view-ubs-detalhe');
+}
+
+function localizarUsuario(){
+  if(!navigator.geolocation){ avisoUBS('Seu dispositivo nao informou a localizacao. Mostrando unidades em ordem alfabetica.','aviso'); return; }
+  avisoUBS('Buscando sua localizacao...','aviso');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    App.userLatLng={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    App.ordemAtual='proximidade';
+    if(App.mapa){ L.circleMarker([App.userLatLng.lat,App.userLatLng.lng],{radius:8,color:'#1668FF',fillColor:'#1668FF',fillOpacity:.9}).addTo(App.mapa).bindPopup('Voce esta aqui'); App.mapa.setView([App.userLatLng.lat,App.userLatLng.lng],14); }
+    avisoUBS('Localizacao ativa. Unidades ordenadas da mais proxima para a mais distante.','ok');
+    renderUBSLista();
+  }, ()=>{ App.ordemAtual='az'; avisoUBS('Nao foi possivel acessar sua localizacao. Mostrando unidades em ordem alfabetica.','aviso'); renderUBSLista(); }, {timeout:8000});
+}
+function avisoUBS(txt,tipo){ $('#ubs-aviso').innerHTML = txt?`<div class="msg msg-${tipo}">${txt}</div>`:''; }
+
+/* =========================================================
+   CHAT
+========================================================= */
+function nomeCidadao(cidId){ const m=App.msgs.find(x=>x.autorId===cidId && x.autorNome); return m?m.autorNome:'Cidadao'; }
+
+function renderChatLista(){
+  const cont = $('#chat-lista'); const s=App.sessao;
+  if(s.tipo==='visitante'){
+    cont.innerHTML = `<div class="card card-pad empty"><div class="em-ico">&#128274;</div><p>O chat e exclusivo para usuarios cadastrados.</p><button class="btn btn-primary" onclick="sair()" style="margin-top:8px">Entrar ou cadastrar</button></div>`; return;
+  }
+  if(s.tipo==='enfermeiro'){
+    const minha = s.ubsId; const threads = {};
+    App.msgs.filter(m=> m.ubsId===minha).forEach(m=>{ (threads[m.cidadaoId]=threads[m.cidadaoId]||[]).push(m); });
+    const ids = Object.keys(threads);
+    if(!ids.length){ cont.innerHTML=`<div class="empty"><div class="em-ico">&#128172;</div><p>Nenhuma conversa ainda. Os cidadaos verao sua UBS no chat.</p></div>`; return; }
+    cont.innerHTML = `<div class="card">`+ids.map(cid=>{
+      const ult = threads[cid][threads[cid].length-1];
+      return `<div class="ubs-item" role="button" tabindex="0" data-thread="${cid}"><div class="ubs-pin">&#128100;</div><div><h3>${escapeHTML(nomeCidadao(cid))}</h3><div class="meta">${escapeHTML(ult.texto.slice(0,40))}</div></div></div>`;
+    }).join('')+`</div>`;
+    $$('#chat-lista .ubs-item').forEach(el=> el.addEventListener('click', ()=> abrirThread(s.ubsId, el.dataset.thread)));
+    return;
+  }
+  cont.innerHTML = `<p class="subt">Escolha uma unidade para conversar:</p><div class="card">`+
+    App.ubs.map(u=>`<div class="ubs-item" role="button" tabindex="0" data-ubs="${u.id}"><div class="ubs-pin">&#127973;</div><div><h3>${escapeHTML(u.nome)}</h3><div class="meta">${escapeHTML(u.bairro)}</div></div></div>`).join('')+`</div>`;
+  $$('#chat-lista .ubs-item').forEach(el=> el.addEventListener('click', ()=> iniciarChatComUBS(el.dataset.ubs)));
+}
+
+function iniciarChatComUBS(ubsId){
+  const s=App.sessao;
+  if(s.tipo==='visitante'){ navegar('view-chat'); renderChatLista(); return; }
+  if(s.tipo==='enfermeiro'){ navegar('view-chat'); return; }
+  abrirThread(ubsId, s.id);
+}
+
+function abrirThread(ubsId, cidadaoId){
+  const ubs = App.ubs.find(u=>u.id===ubsId);
+  const ehEnf = App.sessao.tipo==='enfermeiro';
+  $('#thread-titulo').textContent = ehEnf ? nomeCidadao(cidadaoId) : (ubs?ubs.nome:'Unidade');
+  $('#view-chat-thread').dataset.ubs=ubsId;
+  $('#view-chat-thread').dataset.cid=cidadaoId;
+  desenharThread();
+  navegar('view-chat-thread');
+}
+
+function desenharThread(){
+  const ubsId=$('#view-chat-thread').dataset.ubs, cid=$('#view-chat-thread').dataset.cid;
+  const msgs = App.msgs.filter(m=> m.ubsId===ubsId && m.cidadaoId===cid).sort((a,b)=>a.ts-b.ts);
+  const meuId = App.sessao.id; const cont=$('#thread-msgs');
+  if(!msgs.length){ cont.innerHTML=`<div class="empty" style="padding:30px 10px"><p>Inicie a conversa. As mensagens aparecem aqui em tempo real.</p></div>`; }
+  else{ cont.innerHTML = msgs.map(m=>{ const meu = m.autorId===meuId; return `<div class="bubble ${meu?'me':'them'}"><span class="who">${escapeHTML(m.autorNome)}</span>${escapeHTML(m.texto)}</div>`; }).join(''); }
+  cont.scrollTop = cont.scrollHeight;
+}
+
+async function enviarMensagem(){
+  const txt=$('#thread-input').value.trim(); if(!txt) return;
+  const ubsId=$('#view-chat-thread').dataset.ubs; let cid=$('#view-chat-thread').dataset.cid;
+  const s=App.sessao; if(s.tipo!=='enfermeiro') cid=s.id;
+  $('#thread-input').value='';
+  const row={ubs_id:ubsId, cidadao_id:cid, autor_id:s.id, autor_nome:s.nome, tipo:s.tipo, texto:txt};
+  try{
+    const {data,error}=await sb.from('mensagens').insert(row).select().single();
+    if(error){ avisoThread('Falha ao enviar. Tente novamente.'); $('#thread-input').value=txt; return; }
+    if(data && !App.msgs.some(m=>m.id===data.id)){ App.msgs.push(mapMsg(data)); desenharThread(); }
+    anunciar('Mensagem enviada');
+  }catch(e){ avisoThread('Sem conexao. Mensagem nao enviada.'); $('#thread-input').value=txt; }
+}
+function avisoThread(t){ anunciar(t); }
+
+/* =========================================================
+   PERFIL
+========================================================= */
+function renderPerfil(){
+  const s=App.sessao;
+  $('#perfil-nome').textContent = s.nome;
+  const rot={cidadao:'Conta de cidadao',visitante:'Acesso de visitante',enfermeiro:'Profissional de saude (Enfermeiro)',coordenador:'Coordenacao municipal'}[s.tipo]||'';
+  $('#perfil-tipo').textContent = rot + (s.coren?` · COREN ${s.coren}`:'') + (s.email?` · ${s.email}`:'');
+  const acoes=$('#perfil-acoes'); acoes.innerHTML='';
+  if(s.tipo==='enfermeiro'){ acoes.innerHTML += `<button class="btn btn-primary" onclick="navegar('view-post-novo')" style="margin-bottom:10px">&#10133; Criar publicacao</button>`; }
+  if(s.tipo==='coordenador'){ const pend = App.posts.filter(p=>p.status==='pendente').length; acoes.innerHTML += `<button class="btn btn-coral" onclick="renderAprovacoes();navegar('view-aprovar')" style="margin-bottom:10px">&#9989; Aprovar publicacoes ${pend?`<span class="badge-count">${pend}</span>`:''}</button>`; }
+  if(s.tipo==='visitante'){ acoes.innerHTML += `<div class="msg msg-aviso">Voce esta como visitante. Cadastre-se para usar o chat e receber novidades.</div><button class="btn btn-primary" onclick="sair()">Criar conta / Entrar</button>`; }
+}
+
+/* =========================================================
+   CRIAR POST + APROVACAO
+========================================================= */
+function prepararFormPost(){
+  const sel=$('#post-local'); if(!sel) return;
+  sel.innerHTML = App.ubs.map(u=>`<option value="${u.id}">${escapeHTML(u.nome)}</option>`).join('');
+  if(App.sessao.tipo==='enfermeiro' && App.sessao.ubsId) sel.value=App.sessao.ubsId;
+}
+function postMsg(html,tipo='erro'){ $('#post-msg').innerHTML = html?`<div class="msg msg-${tipo}">${html}</div>`:''; }
+
+async function publicarPost(){
+  const tipo=$('#post-tipo').value, titulo=$('#post-titulo').value.trim(), dataEvento=$('#post-data').value;
+  const local=$('#post-local').value, publico=$('#post-publico').value.trim(), descricao=$('#post-descricao').value.trim();
+  if(!titulo) return postMsg('Informe um titulo.');
+  if(!dataEvento) return postMsg('Selecione a data do evento.');
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  if(new Date(dataEvento+'T00:00:00') < hoje) return postMsg('A data do evento nao pode estar no passado.');
+  if(!descricao) return postMsg('Escreva uma descricao.');
+  try{
+    const {error}=await sb.from('posts').insert({tipo,titulo,descricao,data_evento:dataEvento,local,publico,autor_id:App.sessao.id,autor_nome:App.sessao.nome,status:'pendente'});
+    if(error) return postMsg('Nao foi possivel enviar. Tente novamente.');
+    await carregarPosts();
+    postMsg('Publicacao enviada para aprovacao do coordenador.','ok');
+    ['post-titulo','post-data','post-publico','post-descricao'].forEach(id=>$('#'+id).value='');
+    anunciar('Publicacao enviada para aprovacao');
+  }catch(e){ postMsg('Sem conexao com o servidor.'); }
+}
+
+function renderAprovacoes(){
+  const cont=$('#aprovar-lista');
+  const pend=App.posts.filter(p=>p.status==='pendente').sort((a,b)=>b.createdAt-a.createdAt);
+  if(!pend.length){ cont.innerHTML=`<div class="empty"><div class="em-ico">&#9989;</div><p>Nenhuma publicacao pendente.</p></div>`; return; }
+  cont.innerHTML = pend.map(p=>{
+    const ubs=App.ubs.find(u=>u.id===p.local);
+    return `<div class="card card-pad" style="margin-bottom:12px">
+      <span class="pill-status pill-pendente">Pendente</span>
+      <h3 style="margin:.5rem 0 .2rem">${iconeTipo(p.tipo)} ${escapeHTML(p.titulo)}</h3>
+      <p style="margin:.2rem 0;font-size:.9rem">${escapeHTML(p.descricao)}</p>
+      <div class="post-meta"><span>&#128197; ${dataBR(p.dataEvento)}</span><span>&#128205; ${ubs?escapeHTML(ubs.nome):'-'}</span><span>&#128100; ${escapeHTML(p.autorNome||'-')}</span></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="aprovarPost('${p.id}',true)">Aprovar</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="aprovarPost('${p.id}',false)">Recusar</button>
+      </div></div>`;
+  }).join('');
+}
+
+async function aprovarPost(id, ok){
+  try{
+    if(ok){ const {error}=await sb.from('posts').update({status:'aprovado'}).eq('id',id); if(error) throw error; anunciar('Publicacao aprovada'); }
+    else { const {error}=await sb.from('posts').delete().eq('id',id); if(error) throw error; anunciar('Publicacao recusada'); }
+    await carregarPosts(); renderAprovacoes(); renderFeed(); renderPerfil();
+  }catch(e){ anunciar('Falha ao processar a publicacao.'); }
+}
+
+/* =========================================================
+   ACESSIBILIDADE
+========================================================= */
+let fontPx=16;
+function aplicarFonte(){ document.documentElement.style.setProperty('--base-font', fontPx+'px'); }
+function abrirA11y(){ $('#a11y-overlay').classList.add('on'); }
+function fecharA11y(){ $('#a11y-overlay').classList.remove('on'); }
+let recog=null, vozLigada=false;
+function toggleVoz(lig){
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!Rec){ $('#voz-status').textContent='Comandos de voz nao sao suportados neste navegador.'; return false; }
+  if(lig){
+    recog = new Rec(); recog.lang='pt-BR'; recog.continuous=true; recog.interimResults=false;
+    recog.onresult = e=>{ const txt = e.results[e.results.length-1][0].transcript.toLowerCase().trim(); $('#voz-status').textContent = 'Ouvi: "'+txt+'"'; processarComandoVoz(txt); };
+    recog.onerror = e=>{ $('#voz-status').textContent='Erro de voz: '+e.error; };
+    recog.onend = ()=>{ if(vozLigada){ try{recog.start();}catch(_){} } };
+    try{ recog.start(); vozLigada=true; $('#voz-status').textContent='Ouvindo... diga feed, mapa, chat, perfil ou voltar.'; return true; }
+    catch(e){ $('#voz-status').textContent='Nao foi possivel iniciar a voz.'; return false; }
+  }else{ vozLigada=false; if(recog) recog.stop(); $('#voz-status').textContent=''; return false; }
+}
+function processarComandoVoz(txt){
+  if(/(feed|in[ií]cio|not[ií]cia)/.test(txt)) navegar('view-feed');
+  else if(/(mapa|ubs|unidade|localizar|pr[oó]xim)/.test(txt)){ navegar('view-ubs'); }
+  else if(/(chat|conversa|mensagem)/.test(txt)){ if(App.sessao.tipo!=='visitante'){navegar('view-chat'); renderChatLista();} }
+  else if(/(perfil|conta|minha conta)/.test(txt)) navegar('view-perfil');
+  else if(/(voltar|anterior)/.test(txt)) navegar('view-feed');
+}
+
+/* =========================================================
+   UTILIDADES
+========================================================= */
+function escapeHTML(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(ms){ return new Date(ms).toISOString().slice(0,10); }
+function dataBR(iso){ if(!iso) return ''; const[a,m,d]=String(iso).split('-'); return `${d}/${m}/${a}`; }
+function trocarSeg(qual){ const map={entrar:'#seg-entrar',cadastrar:'#seg-cadastrar',prof:'#seg-prof'}; $(map[qual]).click(); }
+function preencherUBSselect(){ const sel=$('#profc-ubs'); if(!sel) return; sel.innerHTML = App.ubs.map(u=>`<option value="${u.id}">${escapeHTML(u.nome)}</option>`).join(''); }
+
+/* =========================================================
+   EVENTOS
+========================================================= */
+function bindEventos(){
+  const segs={'#seg-entrar':'entrar','#seg-cadastrar':'cadastrar','#seg-prof':'prof'};
+  Object.entries(segs).forEach(([sel,nome])=>{
+    $(sel).addEventListener('click', ()=>{
+      ['#seg-entrar','#seg-cadastrar','#seg-prof'].forEach(b=>{$(b).classList.remove('on');$(b).setAttribute('aria-selected','false');});
+      $(sel).classList.add('on'); $(sel).setAttribute('aria-selected','true');
+      $$('.auth-panel').forEach(p=>p.classList.remove('on'));
+      $('#panel-'+nome).classList.add('on'); authMsg('');
+    });
+  });
+  $('#seg-prof-login').addEventListener('click', ()=>{ $('#seg-prof-login').classList.add('on');$('#seg-prof-cad').classList.remove('on');$('#prof-login-box').style.display='block';$('#prof-cad-box').style.display='none'; });
+  $('#seg-prof-cad').addEventListener('click', ()=>{ $('#seg-prof-cad').classList.add('on');$('#seg-prof-login').classList.remove('on');$('#prof-cad-box').style.display='block';$('#prof-login-box').style.display='none'; preencherUBSselect(); });
+
+  $('#btn-login').addEventListener('click', ()=> fazerLogin($('#login-email').value, $('#login-senha').value));
+  $('#login-senha').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#btn-login').click(); });
+  $('#btn-visitante').addEventListener('click', entrarVisitante);
+  $('#btn-recuperar').addEventListener('click', ()=> recuperarSenha($('#login-email').value));
+  $('#btn-cadastrar').addEventListener('click', ()=> cadastrarCidadao($('#cad-nome').value,$('#cad-email').value,$('#cad-senha').value,$('#cad-senha2').value));
+  $('#btn-prof-login').addEventListener('click', ()=> fazerLoginEnfermeiro($('#prof-coren').value,$('#prof-senha').value));
+  $('#btn-prof-cad').addEventListener('click', ()=> cadastrarEnfermeiro($('#profc-nome').value,$('#profc-email').value,$('#profc-coren').value,$('#profc-ubs').value,$('#profc-senha').value));
+
+  $$('.tabbar button').forEach(b=> b.addEventListener('click', ()=>{
+    const v=b.dataset.tab;
+    if(v==='view-chat'){ renderChatLista(); }
+    if(v==='view-ubs'){ renderUBSLista(); }
+    if(v==='view-perfil'){ renderPerfil(); }
+    if(v==='view-feed'){ renderFeed(); }
+    navegar(v);
+  }));
+  $$('[data-back]').forEach(b=> b.addEventListener('click', ()=> navegar(b.dataset.back)));
+
+  $('#btn-localizar').addEventListener('click', localizarUsuario);
+  $('#btn-ordem-az').addEventListener('click', ()=>{ App.ordemAtual='az'; renderUBSLista(); avisoUBS('Unidades em ordem alfabetica.','aviso'); });
+  $('#btn-enviar-msg').addEventListener('click', enviarMensagem);
+  $('#thread-input').addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); enviarMensagem(); } });
+  $('#btn-publicar').addEventListener('click', publicarPost);
+  $('#btn-sair').addEventListener('click', sair);
+
+  $('#btn-a11y').addEventListener('click', abrirA11y);
+  $('#a11y-fechar').addEventListener('click', fecharA11y);
+  $('#a11y-overlay').addEventListener('click', e=>{ if(e.target.id==='a11y-overlay') fecharA11y(); });
+  $('#font-mais').addEventListener('click', ()=>{ fontPx=Math.min(fontPx+1,22); aplicarFonte(); });
+  $('#font-menos').addEventListener('click', ()=>{ fontPx=Math.max(fontPx-1,14); aplicarFonte(); });
+  $('#sw-contraste').addEventListener('click', ()=>{ const on=document.body.classList.toggle('alto-contraste'); const sw=$('#sw-contraste'); sw.classList.toggle('on',on); sw.setAttribute('aria-checked',on); });
+  $('#sw-voz').addEventListener('click', ()=>{ const sw=$('#sw-voz'); const queroLigar=!sw.classList.contains('on'); const ok=toggleVoz(queroLigar); sw.classList.toggle('on', queroLigar&&ok!==false); sw.setAttribute('aria-checked', sw.classList.contains('on')); });
+}
+
+/* =========================================================
+   SETUP (quando faltam as chaves do Supabase)
+========================================================= */
+function mostrarSetup(extra){
+  const tela=$('#screen-setup'); if(!tela) return;
+  $('#screen-auth').style.display='none'; $('#app-shell').style.display='none'; tela.style.display='flex';
+  if(extra){ $('#setup-extra').innerHTML = `<div class="msg msg-erro">${escapeHTML(extra)}</div>`; }
+}
+
+/* =========================================================
+   BOOT
+========================================================= */
+async function boot(){
+  bindEventos();
+  if(!CONFIGURADO){ mostrarSetup(); return; }
+  if(typeof supabase==='undefined'){ mostrarSetup('A biblioteca do Supabase nao carregou. Verifique sua conexao com a internet.'); return; }
+  try{ sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+  catch(e){ return mostrarSetup('URL ou chave do Supabase invalidas.'); }
+  try{ await Promise.all([carregarUBS(), carregarPosts(), carregarMsgs()]); }
+  catch(e){ console.error(e); return mostrarSetup('Nao foi possivel conectar ao Supabase. Confira a URL, a chave e se o script SQL foi executado no projeto. Detalhe: '+(e.message||e.code||'')); }
+  preencherUBSselect();
+  let saved=null; try{ saved=localStorage.getItem('livia:sessao'); }catch(_){}
+  if(saved){ try{ App.sessao=JSON.parse(saved); }catch(_){} }
+  if(App.sessao && App.sessao.tipo){ iniciarApp(); }
+}
+boot();
+
+/* PWA: service worker + instalar */
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+let promptInstalar=null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault(); promptInstalar=e;
+  const alvo = document.querySelector('#screen-auth .brand-hero');
+  if(alvo && !document.getElementById('btn-instalar')){
+    const b=document.createElement('button'); b.id='btn-instalar'; b.className='btn btn-soft'; b.style.marginTop='12px'; b.textContent='Instalar aplicativo';
+    b.onclick=async ()=>{ if(!promptInstalar) return; promptInstalar.prompt(); await promptInstalar.userChoice; promptInstalar=null; b.remove(); };
+    alvo.appendChild(b);
+  }
+});
+</script>
