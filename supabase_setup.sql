@@ -143,6 +143,13 @@ grant execute on function login_coren(text,text)               to anon, authenti
 grant execute on function cadastrar_cidadao(text,text,text)    to anon, authenticated;
 grant execute on function cadastrar_enfermeiro(text,text,text,text,text) to anon, authenticated;
 
+-- Lista de UBS que possuem ao menos um enfermeiro (para sinalizar atendimento no chat)
+create or replace function ubs_com_enfermeiro()
+returns text[] language sql security definer set search_path=public stable as $$
+  select coalesce(array_agg(distinct ubs_id), '{}') from usuarios where tipo='enfermeiro' and ubs_id is not null;
+$$;
+grant execute on function ubs_com_enfermeiro() to anon, authenticated;
+
 -- ------------------------- REALTIME (chat e feed ao vivo) -------------------------
 do $$ begin
   alter publication supabase_realtime add table mensagens;
