@@ -475,15 +475,14 @@ const SUPABASE_ANON_KEY = 'sua-chave-anon-public';</pre>
    CONFIG — cole os dados do SEU projeto Supabase aqui
    (Project Settings > API: Project URL e a chave "anon public")
 ========================================================= */
-const SUPABASE_URL = 'https://laanwpeoidciyzjkbdtc.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhYW53cGVvaWRjaXl6amtiZHRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMzc0MjAsImV4cCI6MjA5NjcxMzQyMH0.uT40wpTyFq0Y7jwthTaqlPNtenK7tigic0osAQFdQOU';
-
+const SUPABASE_URL = 'COLE_SUA_URL_AQUI';
+const SUPABASE_ANON_KEY = 'COLE_SUA_ANON_KEY_AQUI';
 
 const CONFIGURADO = !/COLE_SUA/.test(SUPABASE_URL) && !/COLE_SUA/.test(SUPABASE_ANON_KEY);
 let sb = null;
 
 /* estado em memoria */
-const App = { sessao:null, ubs:[], posts:[], msgs:[], ubsComEnf:[], unread:0, knownIds:null, syncing:false, mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
+const App = { sessao:null, ubs:[], posts:[], msgs:[], ubsComEnf:[], unread:0, knownIds:null, enviadas:new Map(), syncing:false, mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
 
 const $  = (s,root=document)=> root.querySelector(s);
 const $$ = (s,root=document)=> [...root.querySelectorAll(s)];
@@ -501,7 +500,17 @@ const mapUser = r => r ? ({id:r.id, tipo:r.tipo, nome:r.nome, email:r.email, cor
 ========================================================= */
 async function carregarUBS(){ const {data,error}=await sb.from('ubs').select('*').order('nome'); if(error) throw error; App.ubs=(data||[]).map(mapUbs); }
 async function carregarPosts(){ const {data,error}=await sb.from('posts').select('*').order('created_at',{ascending:false}); if(error) throw error; App.posts=(data||[]).map(mapPost); }
-async function carregarMsgs(){ const {data,error}=await sb.from('mensagens').select('*').order('ts'); if(error) throw error; App.msgs=(data||[]).map(mapMsg); }
+async function carregarMsgs(){
+  const {data,error}=await sb.from('mensagens').select('*').order('ts'); if(error) throw error;
+  let arr=(data||[]).map(mapMsg);
+  // preserva mensagens enviadas nesta sessao ate o servidor confirmar (evita "sumir")
+  if(App.enviadas && App.enviadas.size){
+    const ids=new Set(arr.map(m=>m.id));
+    App.enviadas.forEach((m,id)=>{ if(ids.has(id)) App.enviadas.delete(id); else arr.push(m); });
+    arr.sort((a,b)=> a.ts-b.ts);
+  }
+  App.msgs=arr;
+}
 async function carregarUbsComEnf(){
   try{ const {data,error}=await sb.rpc('ubs_com_enfermeiro'); if(!error && Array.isArray(data)) App.ubsComEnf=data; }catch(_){}
 }
@@ -572,17 +581,20 @@ async function recuperarSenha(email){
 async function entrar(conta){
   App.sessao = conta;
   App.unread=0;
+  App.enviadas.clear();
   try{ localStorage.setItem('livia:sessao', JSON.stringify(conta)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); localStorage.setItem('livia:unread','0'); }catch(_){}
   iniciarApp();
 }
 async function entrarVisitante(){
   App.sessao = {id:'visitante', tipo:'visitante', nome:'Visitante'};
   App.unread=0;
+  App.enviadas.clear();
   try{ localStorage.setItem('livia:sessao', JSON.stringify(App.sessao)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); localStorage.setItem('livia:unread','0'); }catch(_){}
   iniciarApp();
 }
 async function sair(){
   App.sessao = null; App.unread=0;
+  App.enviadas.clear();
   try{ localStorage.removeItem('livia:sessao'); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); localStorage.setItem('livia:unread','0'); }catch(_){}
   atualizarBadgeChat();
   $('#app-shell').style.display='none';
@@ -891,6 +903,7 @@ function desenharThread(){
 
 async function enviarMensagem(){
   const txt=$('#thread-input').value.trim(); if(!txt) return;
+  pedirPermissaoNotif();
   const ubsId=$('#view-chat-thread').dataset.ubs; let cid=$('#view-chat-thread').dataset.cid;
   const s=App.sessao; if(s.tipo!=='enfermeiro') cid=s.id;
   $('#thread-input').value='';
@@ -898,8 +911,12 @@ async function enviarMensagem(){
   try{
     const {data,error}=await sb.from('mensagens').insert(row).select().single();
     if(error){ avisoThread('Falha ao enviar. Tente novamente.'); $('#thread-input').value=txt; return; }
-    if(data && !App.msgs.some(m=>m.id===data.id)){ App.msgs.push(mapMsg(data)); desenharThread(); }
-    if(data && App.knownIds) App.knownIds.add(data.id);
+    if(data){
+      const m=mapMsg(data);
+      App.enviadas.set(data.id, m);
+      if(!App.msgs.some(x=>x.id===data.id)){ App.msgs.push(m); desenharThread(); }
+      if(App.knownIds) App.knownIds.add(data.id);
+    }
     marcarChatVisto();
     anunciar('Mensagem enviada');
   }catch(e){ avisoThread('Sem conexao. Mensagem nao enviada.'); $('#thread-input').value=txt; }
