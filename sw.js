@@ -53,3 +53,14 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+
+/* Abrir o app ao tocar na notificacao */
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type:'window', includeUncontrolled:true }).then(cl => {
+      for (const c of cl) { if ('focus' in c) return c.focus(); }
+      if (clients.openWindow) return clients.openWindow('./');
+    })
+  );
+});
