@@ -36,6 +36,7 @@
     --radius:16px;
     --shadow:0 6px 24px rgba(16,40,34,.08);
     --base-font:16px;
+    --appw:480px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -56,10 +57,10 @@
   }
 
   /* layout app */
-  #app-shell{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;background:var(--bg);position:relative}
+  #app-shell{max-width:var(--appw);margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);position:relative}
   .topbar{
     position:sticky;top:0;z-index:600;display:flex;align-items:center;gap:10px;
-    padding:14px 16px;background:var(--verde);color:#fff;
+    padding:14px 16px;padding-top:calc(14px + env(safe-area-inset-top));background:var(--verde);color:#fff;
   }
   .topbar .marca{display:flex;align-items:baseline;gap:2px;font-weight:800;letter-spacing:.3px;font-size:1.15rem}
   .topbar .marca b{color:#fff}
@@ -116,7 +117,7 @@
   .msg-aviso{background:#FBF1D9;color:var(--aviso)}
 
   /* auth */
-  #screen-auth{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:28px 22px}
+  #screen-auth{max-width:var(--appw);margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:28px 22px}
   .brand-hero{text-align:center;margin-bottom:22px}
   .brand-hero .logo{font-size:2.6rem;font-weight:800;letter-spacing:-.02em}
   .brand-hero .logo span{color:var(--verde)}
@@ -132,7 +133,7 @@
 
   /* bottom nav */
   nav.tabbar{
-    position:fixed;left:0;right:0;bottom:0;z-index:700;max-width:480px;margin:0 auto;
+    position:fixed;left:0;right:0;bottom:0;z-index:700;max-width:var(--appw);margin:0 auto;
     background:var(--surface);border-top:1px solid var(--linha);display:flex;
     padding:6px 6px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px rgba(16,40,34,.06)
   }
@@ -152,7 +153,7 @@
   .ubs-item .meta{font-size:.8rem;color:var(--muted);margin-top:2px}
   .dist-badge{margin-left:auto;font-size:.78rem;font-weight:800;color:var(--verde);white-space:nowrap;align-self:center}
 
-  #mapa{height:240px;width:100%;border-radius:var(--radius);border:1px solid var(--linha);z-index:1}
+  #mapa{height:clamp(200px,38vh,360px);width:100%;border-radius:var(--radius);border:1px solid var(--linha);z-index:1}
   .leaflet-container{font-family:inherit}
 
   /* feed */
@@ -183,7 +184,7 @@
   /* painel acessibilidade */
   .a11y-overlay{position:fixed;inset:0;background:rgba(10,20,18,.45);z-index:1200;display:none;align-items:flex-end;justify-content:center}
   .a11y-overlay.on{display:flex}
-  .a11y-panel{background:var(--surface);width:100%;max-width:480px;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:var(--shadow)}
+  .a11y-panel{background:var(--surface);width:100%;max-width:var(--appw);border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:var(--shadow)}
   .a11y-panel h2{margin:.2rem 0 .8rem;font-size:1.1rem}
   .a11y-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--linha)}
   .a11y-row:last-child{border-bottom:0}
@@ -202,10 +203,37 @@
   .pill-status{display:inline-block;font-size:.72rem;font-weight:800;padding:3px 9px;border-radius:99px}
   .pill-pendente{background:#FBF1D9;color:var(--aviso)}
   .pill-aprovado{background:var(--verde-claro);color:var(--ok)}
+
+  /* ---- Telas grandes: app centralizado como um cartao ---- */
+  @media (min-width:600px){
+    body:not(.alto-contraste){ background:#ECE7DC; }
+    #app-shell,#screen-auth,#screen-install,#screen-setup{
+      background:var(--bg);
+      box-shadow:0 0 0 1px var(--linha), 0 20px 55px rgba(16,40,34,.10);
+    }
+  }
+  /* ---- Telas muito estreitas: reduz folgas ---- */
+  @media (max-width:360px){
+    main{ padding:14px 12px 88px; }
+    #screen-auth,#screen-install,#screen-setup{ padding:24px 16px; }
+    .topbar{ padding-left:12px; padding-right:12px; }
+  }
+  /* ---- Respeita quem prefere menos movimento ---- */
+  @media (prefers-reduced-motion: reduce){ *{ scroll-behavior:auto } }
 </style>
 
+<!-- ================= TELA DE INSTALACAO (porta de entrada) ================= -->
+<section id="screen-install" style="display:none;max-width:var(--appw);margin:0 auto;min-height:100dvh;flex-direction:column;justify-content:center;padding:28px 22px">
+  <div class="brand-hero" style="margin-bottom:18px">
+    <div class="logo">LIVIA<span class="pulse">.</span><span>us</span></div>
+    <div class="tag">Sua saude perto de voce, em Itacoatiara</div>
+  </div>
+  <button id="btn-install-main" class="btn btn-soft">Instalar aplicativo</button>
+  <div id="install-help" style="display:none;margin-top:16px"></div>
+</section>
+
 <!-- ================= TELA DE CONFIGURACAO (sem chaves Supabase) ================= -->
-<section id="screen-setup" style="display:none;max-width:480px;margin:0 auto;min-height:100%;flex-direction:column;justify-content:center;padding:28px 22px;gap:4px">
+<section id="screen-setup" style="display:none;max-width:var(--appw);margin:0 auto;min-height:100dvh;flex-direction:column;justify-content:center;padding:28px 22px;gap:4px">
   <div class="brand-hero">
     <div class="logo">LIVIA<span class="pulse">.</span><span>us</span></div>
     <div class="tag">Configuracao do servidor</div>
@@ -213,14 +241,14 @@
   <div id="setup-extra"></div>
   <div class="card card-pad">
     <p style="margin-top:0"><b>Falta conectar ao Supabase.</b> Abra este arquivo (index.html) num editor de texto e cole, no topo do script, a URL e a chave do seu projeto:</p>
-    <pre style="background:var(--verde-claro);padding:12px;border-radius:10px;overflow:auto;font-size:.82rem">const SUPABASE_URL = 'https://laanwpeoidciyzjkbdtc.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhYW53cGVvaWRjaXl6amtiZHRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMzc0MjAsImV4cCI6MjA5NjcxMzQyMH0.uT40wpTyFq0Y7jwthTaqlPNtenK7tigic0osAQFdQOU';</pre>
+    <pre style="background:var(--verde-claro);padding:12px;border-radius:10px;overflow:auto;font-size:.82rem">const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
+const SUPABASE_ANON_KEY = 'sua-chave-anon-public';</pre>
     <p style="font-size:.9rem;color:var(--muted)">Voce encontra os dois valores no painel do Supabase em <b>Project Settings &gt; API</b>. Antes, rode o arquivo <b>supabase_setup.sql</b> no <b>SQL Editor</b> para criar as tabelas e os dados de teste. O passo a passo completo esta no README.</p>
   </div>
 </section>
 
 <!-- ================= TELA DE AUTENTICACAO ================= -->
-<section id="screen-auth" aria-label="Acesso ao LIVIA.us">
+<section id="screen-auth" style="display:none" aria-label="Acesso ao LIVIA.us">
   <div class="brand-hero">
     <div class="logo">LIVIA<span class="pulse">.</span><span>us</span></div>
     <div class="tag">Sua saude perto de voce, em Itacoatiara</div>
@@ -450,7 +478,7 @@ const CONFIGURADO = !/COLE_SUA/.test(SUPABASE_URL) && !/COLE_SUA/.test(SUPABASE_
 let sb = null;
 
 /* estado em memoria */
-const App = { sessao:null, ubs:[], posts:[], msgs:[], mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
+const App = { sessao:null, ubs:[], posts:[], msgs:[], ubsComEnf:[], mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
 
 const $  = (s,root=document)=> root.querySelector(s);
 const $$ = (s,root=document)=> [...root.querySelectorAll(s)];
@@ -469,6 +497,9 @@ const mapUser = r => r ? ({id:r.id, tipo:r.tipo, nome:r.nome, email:r.email, cor
 async function carregarUBS(){ const {data,error}=await sb.from('ubs').select('*').order('nome'); if(error) throw error; App.ubs=(data||[]).map(mapUbs); }
 async function carregarPosts(){ const {data,error}=await sb.from('posts').select('*').order('created_at',{ascending:false}); if(error) throw error; App.posts=(data||[]).map(mapPost); }
 async function carregarMsgs(){ const {data,error}=await sb.from('mensagens').select('*').order('ts'); if(error) throw error; App.msgs=(data||[]).map(mapMsg); }
+async function carregarUbsComEnf(){
+  try{ const {data,error}=await sb.rpc('ubs_com_enfermeiro'); if(!error && Array.isArray(data)) App.ubsComEnf=data; }catch(_){}
+}
 
 /* =========================================================
    AUTENTICACAO (via funcoes RPC seguras no banco)
@@ -535,17 +566,17 @@ async function recuperarSenha(email){
 
 async function entrar(conta){
   App.sessao = conta;
-  try{ localStorage.setItem('livia:sessao', JSON.stringify(conta)); }catch(_){}
+  try{ localStorage.setItem('livia:sessao', JSON.stringify(conta)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); }catch(_){}
   iniciarApp();
 }
 async function entrarVisitante(){
   App.sessao = {id:'visitante', tipo:'visitante', nome:'Visitante'};
-  try{ localStorage.setItem('livia:sessao', JSON.stringify(App.sessao)); }catch(_){}
+  try{ localStorage.setItem('livia:sessao', JSON.stringify(App.sessao)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); }catch(_){}
   iniciarApp();
 }
 async function sair(){
   App.sessao = null;
-  try{ localStorage.removeItem('livia:sessao'); }catch(_){}
+  try{ localStorage.removeItem('livia:sessao'); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); }catch(_){}
   $('#app-shell').style.display='none';
   $('#screen-auth').style.display='flex';
   authMsg('');
@@ -563,6 +594,7 @@ function navegar(viewId){
   anunciar('Tela: '+ (alvo?.getAttribute('aria-label')||viewId));
   if(viewId==='view-ubs'){ setTimeout(()=>{ if(App.mapa) App.mapa.invalidateSize(); }, 60); }
   window.scrollTo(0,0); const main=$('main'); if(main) main.scrollTop=0;
+  try{ localStorage.setItem('livia:tela', viewId); }catch(_){}
 }
 function anunciar(txt){ const s=$('#sr-status'); if(s) s.textContent = txt; }
 
@@ -570,14 +602,35 @@ function anunciar(txt){ const s=$('#sr-status'); if(s) s.textContent = txt; }
    INICIAR APP
 ========================================================= */
 function iniciarApp(){
+  $('#screen-install') && ($('#screen-install').style.display='none');
   $('#screen-setup') && ($('#screen-setup').style.display='none');
   $('#screen-auth').style.display='none';
   $('#app-shell').style.display='flex';
   const s = App.sessao;
   const rotulo = {cidadao:'Cidadao',visitante:'Visitante',enfermeiro:'Enfermeiro',coordenador:'Coordenador'}[s.tipo]||'';
   $('#topbar-perfil').textContent = rotulo;
-  renderFeed(); renderUBSLista(); renderChatLista(); renderPerfil(); prepararFormPost(); initMapa(); iniciarRealtime();
-  navegar('view-feed');
+  renderFeed(); renderUBSLista(); renderChatLista(); renderPerfil(); prepararFormPost(); initMapa(); iniciarRealtime(); iniciarChatPolling();
+  restaurarTela();
+}
+
+function restaurarTela(){
+  const s=App.sessao;
+  let alvo='view-feed';
+  try{ alvo = localStorage.getItem('livia:tela') || 'view-feed'; }catch(_){}
+  if(alvo==='view-ubs-detalhe') alvo='view-ubs';
+  if(alvo==='view-post-novo' && s.tipo!=='enfermeiro') alvo='view-feed';
+  if(alvo==='view-aprovar' && s.tipo!=='coordenador') alvo='view-perfil';
+  if(alvo==='view-chat-thread'){
+    if(s.tipo==='visitante'){ alvo='view-feed'; }
+    else {
+      let ab=null; try{ ab=JSON.parse(localStorage.getItem('livia:chatAberto')||'null'); }catch(_){}
+      if(ab && ab.ubsId){ renderChatLista(); abrirThread(ab.ubsId, ab.cidadaoId); return; }
+      alvo='view-chat';
+    }
+  }
+  if(alvo==='view-chat'){ renderChatLista(); }
+  if(alvo==='view-aprovar'){ renderAprovacoes(); }
+  navegar(alvo);
 }
 
 /* =========================================================
@@ -601,6 +654,19 @@ function iniciarRealtime(){
       })
       .subscribe();
   }catch(e){ console.warn('Realtime indisponivel', e); }
+}
+
+/* sincronizacao periodica: garante entrega mesmo sem Realtime ativo */
+let chatPoll=null;
+function iniciarChatPolling(){
+  if(chatPoll) return;
+  chatPoll=setInterval(async ()=>{
+    const ehLista=$('#view-chat').classList.contains('ativo');
+    const ehThread=$('#view-chat-thread').classList.contains('ativo');
+    if(!ehLista && !ehThread) return;
+    if(!App.sessao || App.sessao.tipo==='visitante') return;
+    try{ await carregarMsgs(); if(ehThread) desenharThread(); else if(ehLista) renderChatLista(); }catch(_){}
+  }, 3000);
 }
 
 /* =========================================================
@@ -720,8 +786,16 @@ function renderChatLista(){
     $$('#chat-lista .ubs-item').forEach(el=> el.addEventListener('click', ()=> abrirThread(s.ubsId, el.dataset.thread)));
     return;
   }
+  const lista=[...App.ubs].sort((a,b)=>{
+    const na=App.ubsComEnf.includes(a.id)?0:1, nb=App.ubsComEnf.includes(b.id)?0:1;
+    return na-nb || a.nome.localeCompare(b.nome);
+  });
   cont.innerHTML = `<p class="subt">Escolha uma unidade para conversar:</p><div class="card">`+
-    App.ubs.map(u=>`<div class="ubs-item" role="button" tabindex="0" data-ubs="${u.id}"><div class="ubs-pin">&#127973;</div><div><h3>${escapeHTML(u.nome)}</h3><div class="meta">${escapeHTML(u.bairro)}</div></div></div>`).join('')+`</div>`;
+    lista.map(u=>{
+      const tem=App.ubsComEnf.includes(u.id);
+      const selo = tem ? `<span class="dist-badge" style="color:var(--ok)">&#9679; Atendimento</span>` : '';
+      return `<div class="ubs-item" role="button" tabindex="0" data-ubs="${u.id}"><div class="ubs-pin">&#127973;</div><div><h3>${escapeHTML(u.nome)}</h3><div class="meta">${escapeHTML(u.bairro)}</div></div>${selo}</div>`;
+    }).join('')+`</div>`;
   $$('#chat-lista .ubs-item').forEach(el=> el.addEventListener('click', ()=> iniciarChatComUBS(el.dataset.ubs)));
 }
 
@@ -738,6 +812,7 @@ function abrirThread(ubsId, cidadaoId){
   $('#thread-titulo').textContent = ehEnf ? nomeCidadao(cidadaoId) : (ubs?ubs.nome:'Unidade');
   $('#view-chat-thread').dataset.ubs=ubsId;
   $('#view-chat-thread').dataset.cid=cidadaoId;
+  try{ localStorage.setItem('livia:chatAberto', JSON.stringify({ubsId, cidadaoId})); }catch(_){}
   desenharThread();
   navegar('view-chat-thread');
 }
@@ -926,15 +1001,75 @@ function bindEventos(){
 ========================================================= */
 function mostrarSetup(extra){
   const tela=$('#screen-setup'); if(!tela) return;
+  $('#screen-install') && ($('#screen-install').style.display='none');
   $('#screen-auth').style.display='none'; $('#app-shell').style.display='none'; tela.style.display='flex';
   if(extra){ $('#setup-extra').innerHTML = `<div class="msg msg-erro">${escapeHTML(extra)}</div>`; }
+}
+function mostrarAuth(){
+  $('#screen-install') && ($('#screen-install').style.display='none');
+  $('#screen-setup') && ($('#screen-setup').style.display='none');
+  $('#app-shell').style.display='none';
+  $('#screen-auth').style.display='flex';
 }
 
 /* =========================================================
    BOOT
 ========================================================= */
+/* =========================================================
+   GATE DE INSTALACAO + BOOT
+========================================================= */
+const ehIOS = /iphone|ipad|ipod/i.test(navigator.userAgent||'') && !window.MSStream;
+function ehStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
+let promptInstalar=null, bootContinuado=false;
+
+function mostrarInstall(){
+  ['#screen-setup','#screen-auth','#app-shell'].forEach(s=>{ const el=$(s); if(el) el.style.display='none'; });
+  const tela=$('#screen-install'); if(tela) tela.style.display='flex';
+}
+
+function mostrarAjudaInstall(){
+  const h=$('#install-help'); if(!h) return;
+  const passos = ehIOS
+    ? '<b>No iPhone/iPad (Safari):</b><br>1. Toque no botao Compartilhar (quadrado com seta para cima).<br>2. Escolha <b>Adicionar a Tela de Inicio</b>.<br>3. Abra o LIVIA.us pelo icone na tela inicial.'
+    : '<b>Para instalar:</b><br>Abra o menu do navegador (tres pontos) e escolha <b>Instalar aplicativo</b> ou <b>Adicionar a tela inicial</b>. Depois abra o LIVIA.us pelo icone.';
+  h.innerHTML = `<div class="msg msg-aviso">${passos}</div>
+    <div style="text-align:center;margin-top:8px"><button id="btn-install-skip" class="btn-link">Ja instalei o aplicativo</button></div>`;
+  h.style.display='block';
+  const skip=$('#btn-install-skip'); if(skip) skip.addEventListener('click', e=>{ e.preventDefault(); continuarBoot(); });
+}
+
+function bindInstall(){
+  const btn=$('#btn-install-main');
+  if(btn) btn.addEventListener('click', async ()=>{
+    if(promptInstalar){
+      promptInstalar.prompt();
+      const r=await promptInstalar.userChoice; promptInstalar=null;
+      if(r && r.outcome==='accepted'){ btn.style.display='none'; const h=$('#install-help'); if(h){ h.innerHTML='<div class="msg msg-ok">Aplicativo instalado! Abra o LIVIA.us pelo icone na tela inicial.</div>'; h.style.display='block'; } }
+      else { mostrarAjudaInstall(); }
+    } else {
+      mostrarAjudaInstall();
+    }
+  });
+}
+
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); promptInstalar=e; });
+window.addEventListener('appinstalled', ()=>{
+  const btn=$('#btn-install-main'); if(btn) btn.style.display='none';
+  const h=$('#install-help'); if(h){ h.innerHTML='<div class="msg msg-ok">Aplicativo instalado! Abra o LIVIA.us pelo icone na tela inicial para comecar.</div>'; h.style.display='block'; }
+});
+
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+
 async function boot(){
   bindEventos();
+  bindInstall();
+  if(!ehStandalone()){ mostrarInstall(); return; }   // so libera quando instalado
+  continuarBoot();
+}
+
+async function continuarBoot(){
+  if(bootContinuado) return; bootContinuado=true;
+  $('#screen-install') && ($('#screen-install').style.display='none');
   if(!CONFIGURADO){ mostrarSetup(); return; }
   if(typeof supabase==='undefined'){ mostrarSetup('A biblioteca do Supabase nao carregou. Verifique sua conexao com a internet.'); return; }
   try{ sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
@@ -942,22 +1077,11 @@ async function boot(){
   try{ await Promise.all([carregarUBS(), carregarPosts(), carregarMsgs()]); }
   catch(e){ console.error(e); return mostrarSetup('Nao foi possivel conectar ao Supabase. Confira a URL, a chave e se o script SQL foi executado no projeto. Detalhe: '+(e.message||e.code||'')); }
   preencherUBSselect();
+  await carregarUbsComEnf();
   let saved=null; try{ saved=localStorage.getItem('livia:sessao'); }catch(_){}
   if(saved){ try{ App.sessao=JSON.parse(saved); }catch(_){} }
-  if(App.sessao && App.sessao.tipo){ iniciarApp(); }
+  if(App.sessao && App.sessao.tipo){ iniciarApp(); return; }
+  mostrarAuth();
 }
 boot();
-
-/* PWA: service worker + instalar */
-if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
-let promptInstalar=null;
-window.addEventListener('beforeinstallprompt', e=>{
-  e.preventDefault(); promptInstalar=e;
-  const alvo = document.querySelector('#screen-auth .brand-hero');
-  if(alvo && !document.getElementById('btn-instalar')){
-    const b=document.createElement('button'); b.id='btn-instalar'; b.className='btn btn-soft'; b.style.marginTop='12px'; b.textContent='Instalar aplicativo';
-    b.onclick=async ()=>{ if(!promptInstalar) return; promptInstalar.prompt(); await promptInstalar.userChoice; promptInstalar=null; b.remove(); };
-    alvo.appendChild(b);
-  }
-});
 </script>
