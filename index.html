@@ -144,6 +144,10 @@
   nav.tabbar button .ico{font-size:1.35rem;line-height:1}
   nav.tabbar button.on{color:var(--verde)}
   nav.tabbar button.on .ico{transform:translateY(-1px)}
+  nav.tabbar button{position:relative}
+  .tab-badge{position:absolute;top:2px;left:50%;transform:translateX(4px);background:var(--coral);color:#fff;font-size:.6rem;font-weight:800;min-width:15px;height:15px;line-height:15px;padding:0 4px;border-radius:99px;text-align:center}
+  #livia-toast{position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;transform:translateX(-50%) translateY(-160%);width:calc(100% - 24px);max-width:calc(var(--appw) - 24px);background:var(--ink);color:#fff;padding:11px 14px;border-radius:12px;box-shadow:var(--shadow);font-size:.88rem;font-weight:600;z-index:1500;opacity:0;transition:transform .25s ease,opacity .25s ease;cursor:pointer}
+  #livia-toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 
   /* lista UBS */
   .ubs-item{display:flex;gap:12px;align-items:center;padding:14px 16px;cursor:pointer;border-bottom:1px solid var(--linha)}
@@ -474,11 +478,12 @@ const SUPABASE_ANON_KEY = 'sua-chave-anon-public';</pre>
 const SUPABASE_URL = 'https://laanwpeoidciyzjkbdtc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxhYW53cGVvaWRjaXl6amtiZHRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMzc0MjAsImV4cCI6MjA5NjcxMzQyMH0.uT40wpTyFq0Y7jwthTaqlPNtenK7tigic0osAQFdQOU';
 
+
 const CONFIGURADO = !/COLE_SUA/.test(SUPABASE_URL) && !/COLE_SUA/.test(SUPABASE_ANON_KEY);
 let sb = null;
 
 /* estado em memoria */
-const App = { sessao:null, ubs:[], posts:[], msgs:[], ubsComEnf:[], mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
+const App = { sessao:null, ubs:[], posts:[], msgs:[], ubsComEnf:[], unread:0, knownIds:null, syncing:false, mapa:null, marcadores:[], userLatLng:null, ordemAtual:'az', canalRT:null, rtPronto:false };
 
 const $  = (s,root=document)=> root.querySelector(s);
 const $$ = (s,root=document)=> [...root.querySelectorAll(s)];
@@ -566,17 +571,20 @@ async function recuperarSenha(email){
 
 async function entrar(conta){
   App.sessao = conta;
-  try{ localStorage.setItem('livia:sessao', JSON.stringify(conta)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); }catch(_){}
+  App.unread=0;
+  try{ localStorage.setItem('livia:sessao', JSON.stringify(conta)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); localStorage.setItem('livia:unread','0'); }catch(_){}
   iniciarApp();
 }
 async function entrarVisitante(){
   App.sessao = {id:'visitante', tipo:'visitante', nome:'Visitante'};
-  try{ localStorage.setItem('livia:sessao', JSON.stringify(App.sessao)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); }catch(_){}
+  App.unread=0;
+  try{ localStorage.setItem('livia:sessao', JSON.stringify(App.sessao)); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); localStorage.setItem('livia:unread','0'); }catch(_){}
   iniciarApp();
 }
 async function sair(){
-  App.sessao = null;
-  try{ localStorage.removeItem('livia:sessao'); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); }catch(_){}
+  App.sessao = null; App.unread=0;
+  try{ localStorage.removeItem('livia:sessao'); localStorage.removeItem('livia:tela'); localStorage.removeItem('livia:chatAberto'); localStorage.setItem('livia:unread','0'); }catch(_){}
+  atualizarBadgeChat();
   $('#app-shell').style.display='none';
   $('#screen-auth').style.display='flex';
   authMsg('');
@@ -611,6 +619,7 @@ function iniciarApp(){
   $('#topbar-perfil').textContent = rotulo;
   renderFeed(); renderUBSLista(); renderChatLista(); renderPerfil(); prepararFormPost(); initMapa(); iniciarRealtime(); iniciarChatPolling();
   restaurarTela();
+  atualizarBadgeChat();
 }
 
 function restaurarTela(){
@@ -640,12 +649,7 @@ function iniciarRealtime(){
   if(App.rtPronto) return; App.rtPronto=true;
   try{
     App.canalRT = sb.channel('livia-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'mensagens'}, p=>{
-        if(App.msgs.some(m=>m.id===p.new.id)) return;
-        App.msgs.push(mapMsg(p.new));
-        if($('#view-chat-thread').classList.contains('ativo')) desenharThread();
-        if($('#view-chat').classList.contains('ativo')) renderChatLista();
-      })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'mensagens'}, ()=>{ sincronizarMensagens(); })
       .on('postgres_changes',{event:'*',schema:'public',table:'posts'}, async ()=>{
         await carregarPosts();
         if($('#view-feed').classList.contains('ativo')) renderFeed();
@@ -656,17 +660,74 @@ function iniciarRealtime(){
   }catch(e){ console.warn('Realtime indisponivel', e); }
 }
 
-/* sincronizacao periodica: garante entrega mesmo sem Realtime ativo */
+/* =========================================================
+   NOTIFICACOES E SINCRONIZACAO DO CHAT
+========================================================= */
+function ehParaMim(m){
+  const s=App.sessao; if(!s) return false;
+  if(s.tipo==='enfermeiro') return m.ubsId===s.ubsId && m.autorId!==s.id;
+  return m.cidadaoId===s.id && m.autorId!==s.id; // cidadao e coordenador
+}
+function persistUnread(){ try{ localStorage.setItem('livia:unread', String(App.unread)); }catch(_){} }
+function atualizarBadgeChat(){
+  const tab=$('#tab-chat'); if(!tab) return;
+  let b=tab.querySelector('.tab-badge');
+  if(App.unread>0){ if(!b){ b=document.createElement('span'); b.className='tab-badge'; tab.appendChild(b); } b.textContent=App.unread>9?'9+':String(App.unread); }
+  else if(b){ b.remove(); }
+}
+function marcarChatVisto(){ App.unread=0; persistUnread(); atualizarBadgeChat(); }
+
+function pedirPermissaoNotif(){
+  if(!('Notification' in window)) return;
+  if(Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(_){} }
+}
+async function notificar(m){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const opts={ body:`${m.autorNome}: ${String(m.texto).slice(0,90)}`, icon:'icons/icon-192.png', badge:'icons/icon-192.png', tag:'livia-'+m.ubsId+'-'+m.cidadaoId, renotify:true };
+  try{
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    if(reg && reg.showNotification) await reg.showNotification('LIVIA.us — Nova mensagem', opts);
+    else new Notification('LIVIA.us — Nova mensagem', opts);
+  }catch(_){ try{ new Notification('LIVIA.us — Nova mensagem', opts); }catch(__){} }
+}
+function toast(txt){
+  let t=document.getElementById('livia-toast');
+  if(!t){
+    t=document.createElement('div'); t.id='livia-toast';
+    t.onclick=()=>{ if(App.sessao && App.sessao.tipo!=='visitante'){ renderChatLista(); marcarChatVisto(); navegar('view-chat'); } t.classList.remove('show'); };
+    document.body.appendChild(t);
+  }
+  t.textContent='\uD83D\uDCAC '+txt; t.classList.add('show');
+  clearTimeout(t._tmr); t._tmr=setTimeout(()=>{ t.classList.remove('show'); }, 4500);
+}
+
+async function sincronizarMensagens(){
+  if(!App.sessao || App.sessao.tipo==='visitante' || !sb || App.syncing) return;
+  App.syncing=true;
+  try{ await carregarMsgs(); }catch(_){ App.syncing=false; return; }
+  if(!App.knownIds){ App.knownIds=new Set(App.msgs.map(m=>m.id)); App.syncing=false; return; }
+  const novas=App.msgs.filter(m=> !App.knownIds.has(m.id));
+  novas.forEach(m=> App.knownIds.add(m.id));
+  const naThread=$('#view-chat-thread').classList.contains('ativo');
+  const naLista=$('#view-chat').classList.contains('ativo');
+  novas.forEach(m=>{
+    if(!ehParaMim(m)) return;
+    const olhando = naThread && $('#view-chat-thread').dataset.ubs===m.ubsId
+      && (App.sessao.tipo==='enfermeiro' ? $('#view-chat-thread').dataset.cid===m.cidadaoId : true);
+    if(!olhando){ App.unread++; persistUnread(); notificar(m); toast(`Nova mensagem de ${m.autorNome}`); }
+  });
+  if(naThread) desenharThread();
+  else if(naLista) renderChatLista();
+  if(naThread || naLista) marcarChatVisto();
+  else atualizarBadgeChat();
+  App.syncing=false;
+}
+
+/* sincroniza sempre (garante entrega e notificacao mesmo fora do chat) */
 let chatPoll=null;
 function iniciarChatPolling(){
   if(chatPoll) return;
-  chatPoll=setInterval(async ()=>{
-    const ehLista=$('#view-chat').classList.contains('ativo');
-    const ehThread=$('#view-chat-thread').classList.contains('ativo');
-    if(!ehLista && !ehThread) return;
-    if(!App.sessao || App.sessao.tipo==='visitante') return;
-    try{ await carregarMsgs(); if(ehThread) desenharThread(); else if(ehLista) renderChatLista(); }catch(_){}
-  }, 3000);
+  chatPoll=setInterval(()=>{ sincronizarMensagens(); }, 4000);
 }
 
 /* =========================================================
@@ -815,6 +876,8 @@ function abrirThread(ubsId, cidadaoId){
   try{ localStorage.setItem('livia:chatAberto', JSON.stringify({ubsId, cidadaoId})); }catch(_){}
   desenharThread();
   navegar('view-chat-thread');
+  marcarChatVisto();
+  pedirPermissaoNotif();
 }
 
 function desenharThread(){
@@ -836,6 +899,8 @@ async function enviarMensagem(){
     const {data,error}=await sb.from('mensagens').insert(row).select().single();
     if(error){ avisoThread('Falha ao enviar. Tente novamente.'); $('#thread-input').value=txt; return; }
     if(data && !App.msgs.some(m=>m.id===data.id)){ App.msgs.push(mapMsg(data)); desenharThread(); }
+    if(data && App.knownIds) App.knownIds.add(data.id);
+    marcarChatVisto();
     anunciar('Mensagem enviada');
   }catch(e){ avisoThread('Sem conexao. Mensagem nao enviada.'); $('#thread-input').value=txt; }
 }
@@ -972,7 +1037,7 @@ function bindEventos(){
 
   $$('.tabbar button').forEach(b=> b.addEventListener('click', ()=>{
     const v=b.dataset.tab;
-    if(v==='view-chat'){ renderChatLista(); }
+    if(v==='view-chat'){ renderChatLista(); marcarChatVisto(); pedirPermissaoNotif(); }
     if(v==='view-ubs'){ renderUBSLista(); }
     if(v==='view-perfil'){ renderPerfil(); }
     if(v==='view-feed'){ renderFeed(); }
@@ -1078,6 +1143,8 @@ async function continuarBoot(){
   catch(e){ console.error(e); return mostrarSetup('Nao foi possivel conectar ao Supabase. Confira a URL, a chave e se o script SQL foi executado no projeto. Detalhe: '+(e.message||e.code||'')); }
   preencherUBSselect();
   await carregarUbsComEnf();
+  App.knownIds = new Set(App.msgs.map(m=>m.id));
+  try{ App.unread = Number(localStorage.getItem('livia:unread')||0)||0; }catch(_){ App.unread=0; }
   let saved=null; try{ saved=localStorage.getItem('livia:sessao'); }catch(_){}
   if(saved){ try{ App.sessao=JSON.parse(saved); }catch(_){} }
   if(App.sessao && App.sessao.tipo){ iniciarApp(); return; }
